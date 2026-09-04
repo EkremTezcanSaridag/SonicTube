@@ -113,14 +113,14 @@ class DownloadTask:
                     'preferredquality': bitrate,
                 })
                 
+                # Convert YouTube webp thumbnail to jpg first
+                if self.options.get("embed_thumbnail", True):
+                    postprocessors.append({'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'})
+                    postprocessors.append({'key': 'EmbedThumbnail'})
+
                 # Metadata tagger (Artist, Title, Album)
                 if self.options.get("embed_metadata", True):
                     postprocessors.append({'key': 'FFmpegMetadata'})
-                    
-                # Album Cover Artwork
-                if self.options.get("embed_thumbnail", True):
-                    postprocessors.append({'key': 'EmbedThumbnail'})
-                    postprocessors.append({'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'})
 
                 format_str = 'bestaudio/best'
             else:
