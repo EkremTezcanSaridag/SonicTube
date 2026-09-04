@@ -27,7 +27,18 @@ def get_ffmpeg_path() -> Optional[str]:
     if FFMPEG_EXE.exists():
         return str(BIN_DIR)
     
-    # 2. Check system PATH
+    # 2. Check PyInstaller _internal or _MEIPASS bin directory
+    internal_bin = BASE_DIR / "_internal" / "bin"
+    if (internal_bin / "ffmpeg.exe").exists():
+        return str(internal_bin)
+
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass:
+        meipass_bin = Path(meipass) / "bin"
+        if (meipass_bin / "ffmpeg.exe").exists():
+            return str(meipass_bin)
+    
+    # 3. Check system PATH
     system_ffmpeg = shutil.which("ffmpeg")
     if system_ffmpeg:
         return str(Path(system_ffmpeg).parent)

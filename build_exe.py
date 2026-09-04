@@ -45,9 +45,11 @@ def build():
     result = subprocess.run(pyinstaller_args, cwd=str(ROOT_DIR))
     
     if result.returncode == 0:
+        if bin_dir.exists():
+            shutil.copytree(bin_dir, dist_dir / "SonicTube" / "bin", dirs_exist_ok=True)
         exe_path = dist_dir / "SonicTube" / "SonicTube.exe"
         print("\n========================================")
-        print("✓ TEBRİKLER! EXE Başarıyla Üretildi!")
+        print("[OK] TEBRIKLER! EXE Basariyla Uretildi!")
         print(f"Konum: {exe_path}")
         print("========================================\n")
     else:
