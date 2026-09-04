@@ -1,9 +1,13 @@
 import os
+import sys
 import threading
 import subprocess
+import webbrowser
 from tkinter import messagebox
 from typing import Optional, List
+from pathlib import Path
 import customtkinter as ctk
+from PIL import Image
 
 from .theme import COLORS, FONTS
 from .download_card import DownloadCard
@@ -15,14 +19,37 @@ from ..ffmpeg_helper import is_ffmpeg_available, download_ffmpeg
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
 
+# Asset path helper for both script and frozen exe mode
+if getattr(sys, 'frozen', False):
+    APP_ROOT = Path(sys.executable).resolve().parent
+else:
+    APP_ROOT = Path(__file__).resolve().parent.parent.parent
+
+def get_asset_file(filename: str) -> Optional[Path]:
+    search_dirs = [
+        APP_ROOT / "assets",
+        APP_ROOT / "_internal" / "assets",
+    ]
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass:
+        search_dirs.append(Path(meipass) / "assets")
+
+    for d in search_dirs:
+        p = d / filename
+        if p.exists():
+            return p
+    return None
+
 class SonicTubeApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
         self.title("SonicTube - YouTube Video & Müzik İndirici")
-        self.geometry("820x640")
-        self.minsize(720, 500)
+        self.geometry("860x660")
+        self.minsize(760, 520)
         self.configure(fg_color=COLORS["bg_main"])
+
+        self._set_window_icon()
 
         self.config = load_config()
         self.download_cards: List[DownloadCard] = []
@@ -30,14 +57,51 @@ class SonicTubeApp(ctk.CTk):
         self._build_ui()
         self._check_ffmpeg_status()
 
+    def _set_window_icon(self):
+        ico_path = get_asset_file("icon.ico")
+        if ico_path:
+            try:
+                self.iconbitmap(str(ico_path))
+            except Exception:
+                pass
+
     def _build_ui(self):
         # 1. Header Toolbar
-        self.header_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], height=70, corner_radius=0)
+        self.header_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], height=76, corner_radius=0)
         self.header_frame.pack(fill="x", side="top")
         self.header_frame.pack_propagate(False)
 
         header_inner = ctk.CTkFrame(self.header_frame, fg_color="transparent")
         header_inner.pack(fill="both", expand=True, padx=20, pady=12)
+
+        # Brand Logo and Name
+        brand_frame = ctk.CTkFrame(header_inner, fg_color="transparent")
+        brand_frame.pack(side="left", padx=(0, 16))
+
+        logo_path = get_asset_file("icon.png")
+        if logo_path:
+            try:
+                img = Image.open(logo_path).convert("RGBA")
+                self.logo_ctk = ctk.CTkImage(light_image=img, dark_image=img, size=(38, 38))
+                logo_lbl = ctk.CTkLabel(brand_frame, image=self.logo_ctk, text="")
+                logo_lbl.pack(side="left", padx=(0, 8))
+            except Exception:
+                pass
+
+        brand_text_box = ctk.CTkFrame(brand_frame, fg_color="transparent")
+        brand_text_box.pack(side="left")
+        ctk.CTkLabel(
+            brand_text_box,
+            text="SonicTube",
+            font=("Segoe UI", 16, "bold"),
+            text_color="#ffffff"
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            brand_text_box,
+            text="v1.0 Pro",
+            font=("Segoe UI", 9, "bold"),
+            text_color=COLORS["primary"]
+        ).pack(anchor="w")
 
         # Big "Paste Link" Button (4K Video Downloader style)
         self.paste_btn = ctk.CTkButton(
@@ -51,22 +115,22 @@ class SonicTubeApp(ctk.CTk):
             corner_radius=8,
             command=self._on_paste_link_clicked
         )
-        self.paste_btn.pack(side="left", padx=(0, 15))
+        self.paste_btn.pack(side="left", padx=(0, 12))
 
-        # URL entry input for manual pasting if preferred
+        # URL entry input for manual pasting
         self.url_entry = ctk.CTkEntry(
             header_inner,
-            placeholder_text="YouTube video, müzik veya playlist bağlantısını buraya yapıştırın...",
+            placeholder_text="YouTube video, müzik veya playlist bağlantısını yapıştırın...",
             font=FONTS["body"],
             fg_color=COLORS["bg_input"],
             border_color=COLORS["border"],
             height=42,
             corner_radius=8
         )
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 12))
+        self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.url_entry.bind("<Return>", lambda event: self._process_url(self.url_entry.get().strip()))
 
-        # Download / Enter button
+        # Examine / Enter button
         self.fetch_btn = ctk.CTkButton(
             header_inner,
             text="İncele",
@@ -74,21 +138,35 @@ class SonicTubeApp(ctk.CTk):
             fg_color="#2f313a",
             hover_color="#3b3d47",
             text_color=COLORS["text_white"],
-            width=80,
+            width=75,
             height=42,
             corner_radius=8,
             command=lambda: self._process_url(self.url_entry.get().strip())
         )
         self.fetch_btn.pack(side="left", padx=(0, 10))
 
-        # Open Downloads Folder Button
-        self.folder_btn = ctk.CTkButton(
+        # Clear Finished Downloads Button (hidden until downloads exist)
+        self.clear_btn = ctk.CTkButton(
             header_inner,
-            text="📁 İndirilenler",
+            text="🗑️ Temizle",
             font=FONTS["small"],
             fg_color="#27272a",
             hover_color="#3b3d47",
-            width=100,
+            width=80,
+            height=42,
+            corner_radius=8,
+            command=self._clear_finished_downloads
+        )
+        self.clear_btn.pack(side="left", padx=(0, 10))
+
+        # Open Downloads Folder Button
+        self.folder_btn = ctk.CTkButton(
+            header_inner,
+            text="📁 Klasör",
+            font=FONTS["small"],
+            fg_color="#27272a",
+            hover_color="#3b3d47",
+            width=75,
             height=42,
             corner_radius=8,
             command=self._open_downloads_folder
@@ -113,11 +191,15 @@ class SonicTubeApp(ctk.CTk):
         self.empty_state_frame = ctk.CTkFrame(self.content_container, fg_color="transparent")
         self.empty_state_frame.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(
-            self.empty_state_frame,
-            text="🎵",
-            font=("Segoe UI", 48)
-        ).pack(pady=(70, 10))
+        if logo_path:
+            try:
+                big_logo_img = Image.open(logo_path).convert("RGBA")
+                self.big_logo_ctk = ctk.CTkImage(light_image=big_logo_img, dark_image=big_logo_img, size=(110, 110))
+                ctk.CTkLabel(self.empty_state_frame, image=self.big_logo_ctk, text="").pack(pady=(45, 12))
+            except Exception:
+                ctk.CTkLabel(self.empty_state_frame, text="🎵", font=("Segoe UI", 48)).pack(pady=(50, 10))
+        else:
+            ctk.CTkLabel(self.empty_state_frame, text="🎵", font=("Segoe UI", 48)).pack(pady=(50, 10))
 
         ctk.CTkLabel(
             self.empty_state_frame,
@@ -142,23 +224,40 @@ class SonicTubeApp(ctk.CTk):
             scrollbar_button_hover_color="#3b3d47"
         )
 
-        # 4. Bottom Footer Bar
-        self.footer_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], height=32, corner_radius=0)
+        # 4. Bottom Footer Bar (with Developer Credit)
+        self.footer_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], height=36, corner_radius=0)
         self.footer_frame.pack(fill="x", side="bottom")
         self.footer_frame.pack_propagate(False)
 
         footer_inner = ctk.CTkFrame(self.footer_frame, fg_color="transparent")
         footer_inner.pack(fill="both", expand=True, padx=20)
 
+        # Left: Download folder path (clickable)
         self.footer_path_lbl = ctk.CTkLabel(
             footer_inner,
-            text=f"📂 Konum: {self.config.get('download_dir')}",
+            text=f"📂 {self.config.get('download_dir')}",
             font=FONTS["small"],
             text_color=COLORS["text_dim"],
-            anchor="w"
+            cursor="hand2"
         )
         self.footer_path_lbl.pack(side="left")
+        self.footer_path_lbl.bind("<Button-1>", lambda e: self._open_downloads_folder())
 
+        # Center: Developer Signature (Ekrem Tezcan Sarıbağ) with clickable GitHub link
+        self.dev_btn = ctk.CTkButton(
+            footer_inner,
+            text="✨ Geliştirici: Ekrem Tezcan Sarıbağ",
+            font=("Segoe UI", 11, "bold"),
+            fg_color="transparent",
+            hover_color="#27272a",
+            text_color="#10b981",
+            cursor="hand2",
+            height=26,
+            command=self._open_developer_profile
+        )
+        self.dev_btn.pack(side="left", expand=True)
+
+        # Right: FFmpeg Status
         self.ffmpeg_status_lbl = ctk.CTkLabel(
             footer_inner,
             text="FFmpeg: Kontrol ediliyor...",
@@ -167,6 +266,9 @@ class SonicTubeApp(ctk.CTk):
             anchor="e"
         )
         self.ffmpeg_status_lbl.pack(side="right")
+
+    def _open_developer_profile(self):
+        webbrowser.open("https://github.com/EkremTezcanSaridag")
 
     def _check_ffmpeg_status(self):
         if is_ffmpeg_available():
@@ -192,7 +294,7 @@ class SonicTubeApp(ctk.CTk):
                 self.ffmpeg_status_lbl.configure(text="✓ FFmpeg Hazır", text_color=COLORS["success"])
             else:
                 self.banner_label.configure(
-                    text="⚠️ FFmpeg otomatik indirilemedi. İnternet bağlantınızı kontrol edin.",
+                    text="⚠️ FFmpeg otomatik temin edilemedi.",
                     text_color=COLORS["danger"]
                 )
         self.after(0, on_done)
@@ -203,12 +305,11 @@ class SonicTubeApp(ctk.CTk):
         except Exception:
             clipboard_text = ""
 
-        if clipboard_text and ("youtube.com" in clipboard_text or "youtu.be" in clipboard_text):
+        if clipboard_text and any(k in clipboard_text for k in ["youtube.com", "youtu.be"]):
             self.url_entry.delete(0, "end")
             self.url_entry.insert(0, clipboard_text)
             self._process_url(clipboard_text)
         else:
-            # If clipboard does not have a youtube link, check if input box has one
             entry_text = self.url_entry.get().strip()
             if entry_text:
                 self._process_url(entry_text)
@@ -216,14 +317,13 @@ class SonicTubeApp(ctk.CTk):
                 self.url_entry.focus()
                 messagebox.showinfo(
                     "Bağlantı Bekleniyor", 
-                    "Panoda YouTube bağlantısı bulunamadı.\nLütfen önce bir YouTube linki kopyalayın veya arama kutusuna yapıştırın."
+                    "Panoda geçerli bir YouTube bağlantısı bulunamadı.\nLütfen bir video veya şarkı linki kopyalayıp tekrar deneyin."
                 )
 
     def _process_url(self, url: str):
         if not url:
             return
 
-        # Show loading on button
         self.fetch_btn.configure(text="Taranıyor...", state="disabled")
         self.paste_btn.configure(state="disabled")
 
@@ -245,15 +345,12 @@ class SonicTubeApp(ctk.CTk):
         FormatSelectionDialog(self, media_info, on_confirm=self._start_download_flow)
 
     def _start_download_flow(self, options: dict):
-        # Switch to download list view if this is the first download
         if not self.download_cards:
             self.empty_state_frame.pack_forget()
             self.scroll_frame.pack(fill="both", expand=True)
 
-        # Clear input field
         self.url_entry.delete(0, "end")
 
-        # Check if user chose to download entire playlist
         if options.get("download_all_playlist") and options.get("entries"):
             for entry in options.get("entries"):
                 entry_url = entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
@@ -298,12 +395,17 @@ class SonicTubeApp(ctk.CTk):
             self.scroll_frame.pack_forget()
             self.empty_state_frame.pack(fill="both", expand=True)
 
+    def _clear_finished_downloads(self):
+        finished = [c for c in self.download_cards if c.is_completed]
+        for c in finished:
+            c._remove_self()
+
     def _open_downloads_folder(self):
         download_dir = self.config.get("download_dir", os.path.expanduser("~/Downloads/SonicTube"))
         os.makedirs(download_dir, exist_ok=True)
         try:
             os.startfile(download_dir)
-        except Exception as e:
+        except Exception:
             subprocess.run(['explorer', os.path.normpath(download_dir)])
 
 if __name__ == "__main__":
