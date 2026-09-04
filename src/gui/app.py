@@ -11,6 +11,7 @@ from PIL import Image
 
 from .theme import COLORS, FONTS
 from .download_card import DownloadCard
+from .playlist_card import PlaylistCard
 from .format_dialog import FormatSelectionDialog
 from ..config import load_config, save_config
 from ..downloader import fetch_media_info
@@ -45,14 +46,14 @@ class SonicTubeApp(ctk.CTk):
         super().__init__()
 
         self.title("SonicTube - YouTube Video & Müzik İndirici")
-        self.geometry("860x660")
-        self.minsize(760, 520)
+        self.geometry("880x660")
+        self.minsize(780, 520)
         self.configure(fg_color=COLORS["bg_main"])
 
         self._set_window_icon()
 
         self.config = load_config()
-        self.download_cards: List[DownloadCard] = []
+        self.download_cards: List[ctk.CTkFrame] = []
         self.download_queue: List[DownloadCard] = []
         self.active_downloads: List[DownloadCard] = []
         self.max_concurrent_downloads = 2
@@ -75,11 +76,11 @@ class SonicTubeApp(ctk.CTk):
         self.header_frame.pack_propagate(False)
 
         header_inner = ctk.CTkFrame(self.header_frame, fg_color="transparent")
-        header_inner.pack(fill="both", expand=True, padx=20, pady=12)
+        header_inner.pack(fill="both", expand=True, padx=16, pady=12)
 
         # Brand Logo and Name
         brand_frame = ctk.CTkFrame(header_inner, fg_color="transparent")
-        brand_frame.pack(side="left", padx=(0, 16))
+        brand_frame.pack(side="left", padx=(0, 14))
 
         logo_path = get_asset_file("icon.png")
         if logo_path:
@@ -118,7 +119,7 @@ class SonicTubeApp(ctk.CTk):
             corner_radius=8,
             command=self._on_paste_link_clicked
         )
-        self.paste_btn.pack(side="left", padx=(0, 12))
+        self.paste_btn.pack(side="left", padx=(0, 10))
 
         # URL entry input for manual pasting
         self.url_entry = ctk.CTkEntry(
@@ -130,7 +131,7 @@ class SonicTubeApp(ctk.CTk):
             height=42,
             corner_radius=8
         )
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.url_entry.bind("<Return>", lambda event: self._process_url(self.url_entry.get().strip()))
 
         # Examine / Enter button
@@ -141,26 +142,41 @@ class SonicTubeApp(ctk.CTk):
             fg_color="#2f313a",
             hover_color="#3b3d47",
             text_color=COLORS["text_white"],
-            width=75,
+            width=70,
             height=42,
             corner_radius=8,
             command=lambda: self._process_url(self.url_entry.get().strip())
         )
-        self.fetch_btn.pack(side="left", padx=(0, 10))
+        self.fetch_btn.pack(side="left", padx=(0, 6))
 
-        # Clear Finished Downloads Button (hidden until downloads exist)
+        # Cancel All Downloads Button
+        self.cancel_all_btn = ctk.CTkButton(
+            header_inner,
+            text="⏹️ İptal Et",
+            font=FONTS["small"],
+            fg_color="#27272a",
+            hover_color=COLORS["danger_hover"],
+            text_color=COLORS["text_white"],
+            width=75,
+            height=42,
+            corner_radius=8,
+            command=self._cancel_all_downloads
+        )
+        self.cancel_all_btn.pack(side="left", padx=(0, 6))
+
+        # Clear Finished Downloads Button
         self.clear_btn = ctk.CTkButton(
             header_inner,
             text="🗑️ Temizle",
             font=FONTS["small"],
             fg_color="#27272a",
             hover_color="#3b3d47",
-            width=80,
+            width=75,
             height=42,
             corner_radius=8,
             command=self._clear_finished_downloads
         )
-        self.clear_btn.pack(side="left", padx=(0, 10))
+        self.clear_btn.pack(side="left", padx=(0, 6))
 
         # Open Downloads Folder Button
         self.folder_btn = ctk.CTkButton(
@@ -169,7 +185,7 @@ class SonicTubeApp(ctk.CTk):
             font=FONTS["small"],
             fg_color="#27272a",
             hover_color="#3b3d47",
-            width=75,
+            width=70,
             height=42,
             corner_radius=8,
             command=self._open_downloads_folder
@@ -213,7 +229,7 @@ class SonicTubeApp(ctk.CTk):
 
         ctk.CTkLabel(
             self.empty_state_frame,
-            text="• 320 kbps Stüdyo Kalitesinde MP3, M4A, FLAC\n• 4K, 2K, 1080p Full HD Video\n• Otomatik Albüm Kapağı & Sanatçı Etiketleri\n• Çalma Listesi (Playlist) Desteği",
+            text="• 320 kbps Stüdyo Kalitesinde MP3, M4A, FLAC\n• 4K, 2K, 1080p Full HD Video\n• Otomatik Albüm Kapağı & Sanatçı Etiketleri\n• Tek Kart Kompakt Çalma Listesi (Playlist) Desteği",
             font=FONTS["body"],
             text_color=COLORS["text_dim"],
             justify="center"
@@ -246,10 +262,10 @@ class SonicTubeApp(ctk.CTk):
         self.footer_path_lbl.pack(side="left")
         self.footer_path_lbl.bind("<Button-1>", lambda e: self._open_downloads_folder())
 
-        # Center: Developer Signature (Ekrem Tezcan Sarıbağ) with clickable GitHub link
+        # Center: Developer Signature (Ekrem Tezcan Sarıdağ) with clickable GitHub link
         self.dev_btn = ctk.CTkButton(
             footer_inner,
-            text="✨ Geliştirici: Ekrem Tezcan Sarıbağ",
+            text="✨ Geliştirici: Ekrem Tezcan Sarıdağ",
             font=("Segoe UI", 11, "bold"),
             fg_color="transparent",
             hover_color="#27272a",
@@ -354,31 +370,19 @@ class SonicTubeApp(ctk.CTk):
 
         self.url_entry.delete(0, "end")
 
+        # 1. PLAYLIST MODE: Use single compact PlaylistCard (saves CPU & memory!)
         if options.get("download_all_playlist") and options.get("entries"):
-            playlist_entries = options.get("entries", [])
-            for entry in playlist_entries:
-                entry_url = entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
-                entry_info = {
-                    "title": entry.get("title", "Video"),
-                    "thumbnail": entry.get("thumbnail") or options.get("thumbnail"),
-                    "uploader": entry.get("uploader", options.get("uploader")),
-                    "original_url": entry_url
-                }
-                entry_options = options.copy()
-                entry_options["original_url"] = entry_url
-                card = DownloadCard(
-                    self.scroll_frame,
-                    media_info=entry_info,
-                    download_options=entry_options,
-                    on_remove=self._remove_card,
-                    on_status_change=self._on_card_status_changed,
-                    auto_start=False
-                )
-                card.pack(fill="x", pady=6)
-                self.download_cards.append(card)
-                self.download_queue.append(card)
-            self._process_queue()
+            card = PlaylistCard(
+                self.scroll_frame,
+                media_info=options,
+                download_options=options,
+                on_remove=self._remove_card,
+                on_status_change=self._on_card_status_changed
+            )
+            card.pack(fill="x", pady=6)
+            self.download_cards.append(card)
         else:
+            # 2. SINGLE VIDEO / TRACK MODE
             media_info = {
                 "title": options.get("title", options.get("original_url")),
                 "thumbnail": options.get("thumbnail"),
@@ -399,14 +403,14 @@ class SonicTubeApp(ctk.CTk):
             self.download_queue.append(card)
             self._process_queue()
 
-    def _on_card_status_changed(self, card: DownloadCard):
+    def _on_card_status_changed(self, card):
         self.after(50, self._process_queue)
 
     def _process_queue(self):
         # Filter active downloads to remove finished/cancelled ones
         self.active_downloads = [
             c for c in self.active_downloads 
-            if not c.is_completed and c.winfo_exists() and (not c.download_task or not c.download_task.is_cancelled)
+            if hasattr(c, "is_completed") and not c.is_completed and c.winfo_exists() and (not c.download_task or not c.download_task.is_cancelled)
         ]
 
         while len(self.active_downloads) < self.max_concurrent_downloads and self.download_queue:
@@ -415,7 +419,21 @@ class SonicTubeApp(ctk.CTk):
                 self.active_downloads.append(next_card)
                 next_card.start_download()
 
-    def _remove_card(self, card: DownloadCard):
+    def _cancel_all_downloads(self):
+        # 1. Clear queued items
+        self.download_queue.clear()
+        
+        # 2. Cancel all active cards (both single cards and playlist cards)
+        cancelled_count = 0
+        for card in list(self.download_cards):
+            if hasattr(card, "cancel"):
+                card.cancel()
+                cancelled_count += 1
+
+        self.active_downloads.clear()
+        messagebox.showinfo("İptal Edildi", "Tüm aktif ve sıradaki indirme işlemleri iptal edildi.")
+
+    def _remove_card(self, card):
         if card in self.download_cards:
             self.download_cards.remove(card)
         if card in self.download_queue:
@@ -429,7 +447,7 @@ class SonicTubeApp(ctk.CTk):
             self.empty_state_frame.pack(fill="both", expand=True)
 
     def _clear_finished_downloads(self):
-        finished = [c for c in self.download_cards if c.is_completed]
+        finished = [c for c in self.download_cards if getattr(c, "is_completed", False)]
         for c in finished:
             c._remove_self()
 

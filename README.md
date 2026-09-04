@@ -75,6 +75,13 @@ Klasör içindeki **`SonicTube.bat`** dosyasına çift tıklamanız yeterlidir! 
 
 ---
 
+## 👨‍💻 Geliştirici
+
+**Ekrem Tezcan Sarıdağ**  
+GitHub: [@EkremTezcanSaridag](https://github.com/EkremTezcanSaridag)
+
+---
+
 ## 📝 Lisans
 
 Bu proje [MIT Lisansı](LICENSE) altında sunulmaktadır.
