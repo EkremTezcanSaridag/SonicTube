@@ -97,7 +97,7 @@ class FormatSelectionDialog(ctk.CTkToplevel):
                 text=f"Tüm Çalma Listesini İndir ({self.media_info.get('playlist_count')} video)",
                 variable=self.playlist_choice_var,
                 value="all",
-                font=FONTS["body"],
+                font=FONTS["body_bold"],
                 fg_color=COLORS["primary"]
             ).pack(anchor="w", padx=14, pady=(8, 4))
 
@@ -108,9 +108,19 @@ class FormatSelectionDialog(ctk.CTkToplevel):
                 value="single",
                 font=FONTS["body"],
                 fg_color=COLORS["primary"]
+            ).pack(anchor="w", padx=14, pady=(0, 6))
+
+            self.playlist_subfolder_var = ctk.BooleanVar(value=True)
+            ctk.CTkCheckBox(
+                pl_frame,
+                text="📂 Bu çalma listesi için ayrı klasör aç",
+                variable=self.playlist_subfolder_var,
+                font=FONTS["small"],
+                fg_color=COLORS["primary"]
             ).pack(anchor="w", padx=14, pady=(0, 8))
         else:
             self.playlist_choice_var = None
+            self.playlist_subfolder_var = None
 
         # 2. Mode Selector: [🎵 Ses / Müzik Çıkar] vs [🎬 Video İndir]
         self.mode_var = ctk.StringVar(value=self.config.get("default_mode", "audio"))
@@ -389,6 +399,9 @@ class FormatSelectionDialog(ctk.CTkToplevel):
 
         if self.playlist_choice_var:
             options["download_all_playlist"] = (self.playlist_choice_var.get() == "all")
+            if self.playlist_subfolder_var:
+                options["subfolder"] = self.playlist_subfolder_var.get()
+                options["playlist_title"] = self.media_info.get("title", "Playlist")
 
         save_config(self.config)
         self.destroy()

@@ -53,6 +53,9 @@ class SonicTubeApp(ctk.CTk):
 
         self.config = load_config()
         self.download_cards: List[DownloadCard] = []
+        self.download_queue: List[DownloadCard] = []
+        self.active_downloads: List[DownloadCard] = []
+        self.max_concurrent_downloads = 2
 
         self._build_ui()
         self._check_ffmpeg_status()
@@ -352,7 +355,8 @@ class SonicTubeApp(ctk.CTk):
         self.url_entry.delete(0, "end")
 
         if options.get("download_all_playlist") and options.get("entries"):
-            for entry in options.get("entries"):
+            playlist_entries = options.get("entries", [])
+            for entry in playlist_entries:
                 entry_url = entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
                 entry_info = {
                     "title": entry.get("title", "Video"),
@@ -366,10 +370,14 @@ class SonicTubeApp(ctk.CTk):
                     self.scroll_frame,
                     media_info=entry_info,
                     download_options=entry_options,
-                    on_remove=self._remove_card
+                    on_remove=self._remove_card,
+                    on_status_change=self._on_card_status_changed,
+                    auto_start=False
                 )
                 card.pack(fill="x", pady=6)
                 self.download_cards.append(card)
+                self.download_queue.append(card)
+            self._process_queue()
         else:
             media_info = {
                 "title": options.get("title", options.get("original_url")),
@@ -382,14 +390,39 @@ class SonicTubeApp(ctk.CTk):
                 self.scroll_frame,
                 media_info=media_info,
                 download_options=options,
-                on_remove=self._remove_card
+                on_remove=self._remove_card,
+                on_status_change=self._on_card_status_changed,
+                auto_start=False
             )
             card.pack(fill="x", pady=6)
             self.download_cards.append(card)
+            self.download_queue.append(card)
+            self._process_queue()
+
+    def _on_card_status_changed(self, card: DownloadCard):
+        self.after(50, self._process_queue)
+
+    def _process_queue(self):
+        # Filter active downloads to remove finished/cancelled ones
+        self.active_downloads = [
+            c for c in self.active_downloads 
+            if not c.is_completed and c.winfo_exists() and (not c.download_task or not c.download_task.is_cancelled)
+        ]
+
+        while len(self.active_downloads) < self.max_concurrent_downloads and self.download_queue:
+            next_card = self.download_queue.pop(0)
+            if next_card.winfo_exists() and not next_card.is_completed:
+                self.active_downloads.append(next_card)
+                next_card.start_download()
 
     def _remove_card(self, card: DownloadCard):
         if card in self.download_cards:
             self.download_cards.remove(card)
+        if card in self.download_queue:
+            self.download_queue.remove(card)
+        if card in self.active_downloads:
+            self.active_downloads.remove(card)
+        self._process_queue()
 
         if not self.download_cards:
             self.scroll_frame.pack_forget()

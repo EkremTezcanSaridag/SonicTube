@@ -29,18 +29,39 @@ def fetch_media_info(url: str) -> Dict[str, Any]:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         
-    is_playlist = 'entries' in info and info['entries'] is not None
+    is_playlist = info.get('_type') == 'playlist' or ('entries' in info and info['entries'] is not None)
     
     if is_playlist:
-        entries = list(info.get('entries', []))
+        raw_entries = list(info.get('entries', []) or [])
+        clean_entries = []
+        for e in raw_entries:
+            if not e:
+                continue
+            entry_id = e.get('id')
+            entry_url = e.get('url') or (f"https://www.youtube.com/watch?v={entry_id}" if entry_id else None)
+            if not entry_url:
+                continue
+            d_sec = e.get('duration', 0) or 0
+            d_str = f"{d_sec//60:02d}:{d_sec%60:02d}" if d_sec else ""
+            clean_entries.append({
+                'id': entry_id,
+                'title': e.get('title') or 'Bilinmeyen Başlık',
+                'url': entry_url,
+                'thumbnail': e.get('thumbnail') or (e.get('thumbnails', [{}])[-1].get('url') if e.get('thumbnails') else None),
+                'duration': d_str,
+                'uploader': e.get('uploader') or e.get('channel') or info.get('uploader', 'YouTube')
+            })
+
+        first_thumb = clean_entries[0].get('thumbnail') if clean_entries else None
         return {
             'is_playlist': True,
             'title': info.get('title', 'Çalma Listesi'),
             'uploader': info.get('uploader', info.get('channel', 'Bilinmeyen Kanal')),
-            'playlist_count': len(entries),
-            'thumbnail': entries[0].get('thumbnail') if entries else None,
-            'entries': entries,
-            'original_url': url
+            'playlist_count': len(clean_entries),
+            'thumbnail': first_thumb,
+            'entries': clean_entries,
+            'original_url': url,
+            'has_single_video': bool(info.get('id') or 'v=' in url)
         }
     else:
         # Format duration to MM:SS or HH:MM:SS
@@ -57,7 +78,6 @@ def fetch_media_info(url: str) -> Dict[str, Any]:
         thumbnails = info.get('thumbnails', [])
         thumbnail_url = info.get('thumbnail')
         if thumbnails:
-            # Pick highest resolution thumbnail if available
             thumbnail_url = thumbnails[-1].get('url', thumbnail_url)
 
         return {
@@ -95,6 +115,8 @@ class DownloadTask:
     def _run(self):
         try:
             download_dir = Path(self.options.get("download_dir", str(Path.home() / "Downloads" / "SonicTube")))
+            if self.options.get("subfolder") and self.options.get("playlist_title"):
+                download_dir = download_dir / clean_filename(self.options.get("playlist_title"))
             download_dir.mkdir(parents=True, exist_ok=True)
             
             mode = self.options.get("mode", "audio") # 'audio' or 'video'

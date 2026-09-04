@@ -12,7 +12,10 @@ from .theme import COLORS, FONTS
 from ..downloader import DownloadTask
 
 class DownloadCard(ctk.CTkFrame):
-    def __init__(self, master, media_info: dict, download_options: dict, on_remove: Optional[Callable] = None, **kwargs):
+    def __init__(self, master, media_info: dict, download_options: dict, 
+                 on_remove: Optional[Callable] = None, 
+                 on_status_change: Optional[Callable] = None,
+                 auto_start: bool = True, **kwargs):
         super().__init__(
             master, 
             fg_color=COLORS["bg_card"], 
@@ -24,12 +27,25 @@ class DownloadCard(ctk.CTkFrame):
         self.media_info = media_info
         self.options = download_options
         self.on_remove = on_remove
+        self.on_status_change = on_status_change
         self.download_task: Optional[DownloadTask] = None
         self.output_filepath: Optional[str] = None
         self.is_completed = False
+        self.is_started = False
 
         self._build_ui()
         self._load_thumbnail()
+
+        if not auto_start:
+            self.status_label.configure(text="⏳ Sırada bekliyor...", text_color=COLORS["text_dim"])
+        else:
+            self.start_download()
+
+    def start_download(self):
+        if self.is_started:
+            return
+        self.is_started = True
+        self.status_label.configure(text="Bağlanıyor ve hazırlanıyor...", text_color=COLORS["text_dim"])
         self._start_download()
 
     def _build_ui(self):
@@ -245,7 +261,8 @@ class DownloadCard(ctk.CTkFrame):
                 text_color=COLORS["text_dim"],
                 command=self._remove_self
             )
-            remove_btn.pack()
+            if self.on_status_change:
+                self.on_status_change(self)
 
         self.after(0, update)
 
@@ -270,12 +287,17 @@ class DownloadCard(ctk.CTkFrame):
             )
             remove_btn.pack()
 
+            if self.on_status_change:
+                self.on_status_change(self)
+
         self.after(0, update)
 
     def _cancel_download(self):
         if self.download_task:
             self.download_task.cancel()
         self.status_label.configure(text="İptal ediliyor...", text_color=COLORS["warning"])
+        if self.on_status_change:
+            self.on_status_change(self)
 
     def _open_file(self):
         if self.output_filepath and os.path.exists(self.output_filepath):
